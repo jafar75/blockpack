@@ -1,0 +1,22 @@
+[package]
+name = "blockpack"
+version = "0.1.0"
+edition = "2024"
+authors = ["Jafar Gholamzadeh"]
+description = "A streaming knapsack solver for block building simulation"
+license = "MIT"
+repository = "https://github.com/jafar75/blockpack"
+keywords = ["blockchain", "knapsack", "streaming", "mev", "block-builder"]
+categories = ["simulation", "algorithms"]
+
+[dependencies]
+rand = "0.9"
+rand_distr = "0.5"
+crossbeam-channel = "0.5"
+
+[dev-dependencies]
+criterion = "0.8"
+
+# [[bench]]
+# name = "builder_bench"
+# harness = false
