@@ -16,3 +16,7 @@ pub use r#loop::{
     BuilderCommand, BuilderEvent, BuilderLoopConfig,
     LoopStats, PollingBuilder, run_builder_loop, build_from_batch,
 };
+pub use stream::{
+    StreamConfig, StreamStats, TxGenerator,
+    spawn_stream, run_stream, generate_batch, generate_simulated_stream,
+};

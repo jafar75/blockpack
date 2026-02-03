@@ -3,8 +3,8 @@ use std::time::Duration;
 use crossbeam_channel::unbounded;
 
 use blockpack::{
-    Tx, BuilderCommand, BuilderEvent, BuilderLoopConfig,
-    PollingBuilder, run_builder_loop,
+    BuilderCommand, BuilderEvent, BuilderLoopConfig,
+    StreamConfig, spawn_stream, run_builder_loop,
 };
 
 fn main() {
@@ -12,168 +12,151 @@ fn main() {
     println!("============================================");
     println!();
     
-    // Demo 1: PollingBuilder (simple synchronous usage)
-    demo_polling_builder();
-    
-    println!();
-    println!("{:=<70}", "");
-    println!();
-    
-    // Demo 2: Full async builder loop with channels
-    demo_builder_loop();
+    // Full end-to-end demo: stream -> builder -> blocks
+    demo_full_pipeline();
 }
 
-fn demo_polling_builder() {
-    println!("Demo 1: PollingBuilder (synchronous)");
+fn demo_full_pipeline() {
+    println!("Full Pipeline Demo: Stream -> Builder -> Blocks");
     println!("{:-<70}", "");
+    println!();
     
-    let config = BuilderLoopConfig {
-        block_gas_limit: 200_000,
-        block_time: Duration::from_millis(500),
+    // Configuration
+    let stream_config = StreamConfig {
+        tx_rate: 100.0,              // 100 tx/s
+        tx_count: Some(200),         // Generate 200 txs total
+        min_gas: 21_000,
+        max_gas: 300_000,
+        min_fee: 5,
+        max_fee: 150,
+        log_normal_fees: true,
+        fee_mu: 2.5,                 // ~12 gwei median
+        fee_sigma: 0.7,
+        ..Default::default()
+    };
+    
+    let builder_config = BuilderLoopConfig {
+        block_gas_limit: 1_000_000,  // 1M gas per block (small for demo)
+        block_time: Duration::from_millis(500), // Fast blocks
         start_block: 1,
     };
     
-    let mut builder = PollingBuilder::new(config);
-    
-    // Simulate incoming transactions
-    let txs = vec![
-        Tx::new(1, 50_000, 10),
-        Tx::new(2, 60_000, 20),
-        Tx::new(3, 40_000, 30),
-        Tx::new(4, 50_000, 40),
-        Tx::new(5, 45_000, 25),
-    ];
-    
-    println!("Processing {} transactions...", txs.len());
+    println!("Stream config:");
+    println!("  TX rate: {}/s", stream_config.tx_rate);
+    println!("  TX count: {:?}", stream_config.tx_count);
+    println!("  Gas range: {} - {}", stream_config.min_gas, stream_config.max_gas);
+    println!("  Fee range: {} - {} gwei", stream_config.min_fee, stream_config.max_fee);
     println!();
-    
-    for tx in txs {
-        let result = builder.process_tx(tx);
-        let candidate = builder.candidate().unwrap();
-        println!(
-            "  TX {} -> {:?}, block: {} gas, {} value",
-            candidate.transactions.last().map(|t| t.id).unwrap_or(0),
-            result,
-            candidate.gas_used,
-            candidate.total_value
-        );
-    }
-    
-    // Seal the block
+    println!("Builder config:");
+    println!("  Block gas limit: {}", builder_config.block_gas_limit);
+    println!("  Block time: {:?}", builder_config.block_time);
     println!();
-    let block = builder.force_seal().unwrap();
-    println!("Sealed block #{}:", block.number);
-    println!("  Transactions: {}", block.tx_count());
-    println!("  Gas: {} / {}", block.gas_used, block.gas_limit);
-    println!("  Value: {}", block.total_value);
-    
-    let stats = builder.stats();
-    println!();
-    println!("Stats: {} received, {} included, {:.0}% inclusion rate",
-        stats.total_txs_received,
-        stats.total_txs_included,
-        stats.inclusion_rate() * 100.0
-    );
-}
-
-fn demo_builder_loop() {
-    println!("Demo 2: Builder Loop (async with channels)");
-    println!("{:-<70}", "");
-    
-    let config = BuilderLoopConfig {
-        block_gas_limit: 150_000,
-        block_time: Duration::from_millis(200), // Fast blocks for demo
-        start_block: 100,
-    };
     
     // Create channels
     let (tx_sender, tx_receiver) = unbounded();
     let (cmd_sender, cmd_receiver) = unbounded();
     let (event_sender, event_receiver) = unbounded();
     
+    // Spawn stream generator
+    println!("Starting stream generator...");
+    let stream_handle = spawn_stream(stream_config, tx_sender);
+    
     // Spawn builder loop
-    let loop_handle = thread::spawn(move || {
-        run_builder_loop(config, tx_receiver, cmd_receiver, Some(event_sender))
+    println!("Starting builder loop...");
+    let builder_handle = thread::spawn({
+        let config = builder_config.clone();
+        move || run_builder_loop(config, tx_receiver, cmd_receiver, Some(event_sender))
     });
     
-    // Spawn event listener
-    let event_handle = thread::spawn(move || {
-        let mut blocks_seen = 0;
-        while let Ok(event) = event_receiver.recv() {
-            match event {
-                BuilderEvent::TxProcessed { tx_id, result, block_value, .. } => {
-                    println!("  [event] TX {} processed: {:?}, value now {}",
-                        tx_id, result, block_value);
-                }
-                BuilderEvent::BlockSealed { block, stats, build_duration } => {
-                    blocks_seen += 1;
-                    println!();
-                    println!("  [event] Block #{} sealed in {:?}", block.number, build_duration);
-                    println!("          {} txs, {} gas, {} value",
-                        block.tx_count(), block.gas_used, block.total_value);
-                    println!("          acceptance rate: {:.0}%", stats.acceptance_rate() * 100.0);
-                }
-                BuilderEvent::Shutdown => {
-                    println!();
-                    println!("  [event] Builder shut down, {} blocks produced", blocks_seen);
-                    break;
+    // Collect and display events
+    println!("Processing...");
+    println!();
+    
+    let mut blocks_received = 0;
+    let mut last_block_txs = 0;
+    let mut last_block_value = 0;
+    
+    loop {
+        match event_receiver.recv_timeout(Duration::from_millis(100)) {
+            Ok(BuilderEvent::TxProcessed { .. }) => {
+                // Don't print every tx to avoid spam
+            }
+            Ok(BuilderEvent::BlockSealed { block, stats, build_duration }) => {
+                blocks_received += 1;
+                last_block_txs = block.tx_count();
+                last_block_value = block.total_value;
+                
+                println!(
+                    "Block #{:3} | {:3} txs | {:7} gas ({:5.1}%) | {:10} value | built in {:6.2?} | accept {:.0}%",
+                    block.number,
+                    block.tx_count(),
+                    block.gas_used,
+                    block.fullness(),
+                    block.total_value,
+                    build_duration,
+                    stats.acceptance_rate() * 100.0,
+                );
+            }
+            Ok(BuilderEvent::Shutdown) => {
+                println!();
+                println!("Builder shutdown received.");
+                break;
+            }
+            Err(_) => {
+                // Timeout - check if stream is done
+                if stream_handle.is_finished() {
+                    // Give builder a moment to process remaining txs
+                    thread::sleep(Duration::from_millis(200));
+                    cmd_sender.send(BuilderCommand::Shutdown).ok();
                 }
             }
         }
-    });
-    
-    // Send transactions in bursts
-    println!("Sending transactions...");
-    println!();
-    
-    let tx_batches = vec![
-        vec![
-            Tx::new(1, 30_000, 10),
-            Tx::new(2, 40_000, 15),
-            Tx::new(3, 35_000, 20),
-        ],
-        vec![
-            Tx::new(4, 50_000, 25),
-            Tx::new(5, 45_000, 30),
-        ],
-        vec![
-            Tx::new(6, 60_000, 35),
-            Tx::new(7, 30_000, 40),
-            Tx::new(8, 40_000, 50),
-        ],
-    ];
-    
-    for (i, batch) in tx_batches.into_iter().enumerate() {
-        println!("Sending batch {}...", i + 1);
-        for tx in batch {
-            tx_sender.send(tx).unwrap();
-        }
-        // Wait a bit between batches
-        thread::sleep(Duration::from_millis(150));
     }
     
-    // Let it run a bit more
-    thread::sleep(Duration::from_millis(300));
-    
-    // Shutdown
-    println!();
-    println!("Sending shutdown command...");
-    cmd_sender.send(BuilderCommand::Shutdown).unwrap();
-    
-    // Wait for completion
-    let stats = loop_handle.join().unwrap();
-    event_handle.join().unwrap();
+    // Get final stats
+    let stream_stats = stream_handle.join().unwrap();
+    let builder_stats = builder_handle.join().unwrap();
     
     println!();
-    println!("Final loop stats:");
-    println!("  Blocks built: {}", stats.blocks_built);
-    println!("  Total txs received: {}", stats.total_txs_received);
-    println!("  Total txs included: {}", stats.total_txs_included);
-    println!("  Total value: {}", stats.total_value_extracted);
-    println!("  Avg block value: {:.0}", stats.avg_block_value());
-    println!("  Avg block fullness: {:.1}%", stats.avg_block_fullness(150_000));
-    println!("  Run duration: {:?}", stats.run_duration);
+    println!("{:=<70}", "");
+    println!("FINAL STATISTICS");
+    println!("{:=<70}", "");
+    println!();
+    
+    println!("Stream Statistics:");
+    println!("  Transactions generated: {}", stream_stats.txs_generated);
+    println!("  Total gas generated: {}", stream_stats.total_gas);
+    println!("  Total value generated: {}", stream_stats.total_value);
+    println!("  Fee range: {} - {} gwei", stream_stats.min_fee, stream_stats.max_fee);
+    println!("  Average fee: {:.2} gwei", stream_stats.avg_fee);
+    println!("  Actual rate: {:.1} tx/s", stream_stats.actual_rate);
+    println!("  Duration: {:?}", stream_stats.duration);
+    println!();
+    
+    println!("Builder Statistics:");
+    println!("  Blocks built: {}", builder_stats.blocks_built);
+    println!("  Transactions received: {}", builder_stats.total_txs_received);
+    println!("  Transactions included: {}", builder_stats.total_txs_included);
+    println!("  Inclusion rate: {:.1}%", builder_stats.inclusion_rate() * 100.0);
+    println!("  Total value extracted: {}", builder_stats.total_value_extracted);
+    println!("  Total gas used: {}", builder_stats.total_gas_used);
+    println!("  Average block value: {:.0}", builder_stats.avg_block_value());
+    println!("  Average block fullness: {:.1}%", builder_stats.avg_block_fullness(builder_config.block_gas_limit));
+    println!("  Run duration: {:?}", builder_stats.run_duration);
+    println!();
+    
+    // Efficiency metrics
+    let value_capture = if stream_stats.total_value > 0 {
+        builder_stats.total_value_extracted as f64 / stream_stats.total_value as f64 * 100.0
+    } else {
+        0.0
+    };
+    
+    println!("Efficiency:");
+    println!("  Value captured: {:.1}% of total generated", value_capture);
+    println!("  Blocks per second: {:.2}", 
+        builder_stats.blocks_built as f64 / builder_stats.run_duration.as_secs_f64());
     
     println!();
-    println!("TODO: Add stream simulation (step 3.1)");
+    println!("Done!");
 }
