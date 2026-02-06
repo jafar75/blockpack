@@ -5,6 +5,8 @@ pub mod pool;
 pub mod builder;
 pub mod stream;
 pub mod r#loop;
+pub mod time;
+pub mod sim;
 
 // Re-export main types for convenience
 pub use config::Config;
@@ -19,4 +21,12 @@ pub use r#loop::{
 pub use stream::{
     StreamConfig, StreamStats, TxGenerator,
     spawn_stream, run_stream, generate_batch, generate_simulated_stream,
+};
+pub use time::{
+    Clock, RealClock, SimulatedClock, Simulation,
+    TimedEvent, EventQueue, run_discrete_simulation,
+};
+pub use sim::{
+    SimConfig, SimEvent, SimulationResult, BlockSimStats,
+    MonteCarloResult, run_simulation, run_monte_carlo,
 };
