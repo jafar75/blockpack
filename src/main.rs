@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use blockpack::{
-    SimConfig, StreamConfig,
+    SimConfig, StreamConfig, BuilderMetrics, SimulationOutput,
     run_simulation, run_monte_carlo,
 };
 
@@ -10,26 +10,26 @@ fn main() {
     println!("============================================");
     println!();
     
-    // Demo 1: Single simulation run
-    demo_single_simulation();
+    // Demo 1: Simulation with detailed metrics
+    demo_with_metrics();
     
     println!();
     println!("{:=<70}", "");
     println!();
     
-    // Demo 2: Monte Carlo analysis
-    demo_monte_carlo();
+    // Demo 2: Monte Carlo with JSON output
+    demo_json_output();
 }
 
-fn demo_single_simulation() {
-    println!("Demo 1: Discrete Event Simulation");
+fn demo_with_metrics() {
+    println!("Demo 1: Simulation with Detailed Metrics");
     println!("{:-<70}", "");
     println!();
     
     let config = SimConfig {
         block_gas_limit: 1_000_000,
         block_time: Duration::from_secs(12),
-        sim_duration: Duration::from_secs(120), // 2 minutes simulated
+        sim_duration: Duration::from_secs(120),
         stream_config: StreamConfig {
             tx_rate: 50.0,
             min_gas: 21_000,
@@ -44,103 +44,96 @@ fn demo_single_simulation() {
         start_block: 1,
     };
     
-    println!("Configuration:");
-    println!("  Simulated duration: {:?}", config.sim_duration);
-    println!("  Block time: {:?}", config.block_time);
-    println!("  Block gas limit: {}", config.block_gas_limit);
-    println!("  TX rate: {}/s", config.stream_config.tx_rate);
-    println!();
-    
     println!("Running simulation...");
     let result = run_simulation(config.clone());
-    
-    println!("Done in {:?} (real time)", result.real_duration);
+    println!("Done in {:?}", result.real_duration);
     println!();
     
-    println!("Block Results:");
-    println!("{:-<70}", "");
-    println!("{:>6} {:>8} {:>10} {:>12} {:>10} {:>10}",
-        "Block", "TXs", "Gas", "Value", "Fullness", "Accept%");
-    println!("{:-<70}", "");
+    // Build metrics from results
+    let mut metrics = BuilderMetrics::new();
     
     for stats in &result.block_stats {
-        let fullness = (stats.gas_used as f64 / config.block_gas_limit as f64) * 100.0;
-        println!("{:>6} {:>8} {:>10} {:>12} {:>9.1}% {:>9.1}%",
-            stats.block_number,
+        // Simulate tx recording (approximate from block data)
+        let avg_fee = if stats.tx_count > 0 {
+            stats.total_value / stats.gas_used
+        } else {
+            0
+        };
+        
+        for _ in 0..stats.tx_count {
+            metrics.record_tx(
+                stats.gas_used / stats.tx_count as u64,
+                avg_fee,
+                true,
+                false,
+            );
+        }
+        
+        metrics.record_block(
             stats.tx_count,
             stats.gas_used,
             stats.total_value,
-            fullness,
-            stats.incremental_stats.acceptance_rate() * 100.0,
+            config.block_gas_limit,
         );
     }
-    println!("{:-<70}", "");
     
-    println!();
-    println!("Summary:");
-    println!("  Blocks produced: {}", result.blocks.len());
-    println!("  TXs generated: {}", result.txs_generated);
-    println!("  TXs included: {}", result.txs_included);
-    println!("  Inclusion rate: {:.1}%", result.inclusion_rate() * 100.0);
-    println!("  Total value: {}", result.total_value());
-    println!("  Total gas: {}", result.total_gas());
-    println!("  Avg block fullness: {:.1}%", result.avg_block_fullness(config.block_gas_limit));
-    println!();
-    println!("  Simulation speedup: {:.0}x", result.speedup());
+    // Display metrics report
+    let report = metrics.report();
+    println!("{}", report.display());
+    
+    // Display fee histogram
+    println!("Fee Distribution:");
+    println!("{}", metrics.fee_histogram.display(30));
 }
 
-fn demo_monte_carlo() {
-    println!("Demo 2: Monte Carlo Analysis (10 iterations)");
+fn demo_json_output() {
+    println!("Demo 2: JSON Output");
     println!("{:-<70}", "");
     println!();
     
     let config = SimConfig {
-        block_gas_limit: 1_000_000,
-        block_time: Duration::from_secs(12),
-        sim_duration: Duration::from_secs(60),
+        block_gas_limit: 500_000,
+        block_time: Duration::from_secs(6),
+        sim_duration: Duration::from_secs(30),
         stream_config: StreamConfig {
-            tx_rate: 50.0,
+            tx_rate: 30.0,
             log_normal_fees: true,
             ..Default::default()
         },
         start_block: 1,
     };
     
-    println!("Running 10 simulations of {:?} each...", config.sim_duration);
+    println!("Running simulation...");
+    let result = run_simulation(config.clone());
+    
+    // Create JSON output
+    let output = SimulationOutput::from_result(&result, config.block_gas_limit);
+    
     println!();
+    println!("Simulation Summary (JSON):");
+    println!("{}", serde_json::to_string_pretty(&output.summary).unwrap());
     
-    let start = std::time::Instant::now();
-    let mc_result = run_monte_carlo(config.clone(), 10);
-    let total_time = start.elapsed();
-    
-    println!("Results across {} iterations:", mc_result.iterations());
     println!();
-    
-    // Show individual run results
-    println!("{:>5} {:>8} {:>12} {:>12} {:>10}",
-        "Run", "Blocks", "Value", "Incl. Rate", "Speedup");
-    println!("{:-<55}", "");
-    
-    for (i, result) in mc_result.results.iter().enumerate() {
-        println!("{:>5} {:>8} {:>12} {:>11.1}% {:>9.0}x",
-            i + 1,
-            result.blocks.len(),
-            result.total_value(),
-            result.inclusion_rate() * 100.0,
-            result.speedup(),
-        );
+    println!("First block detail:");
+    if let Some(block) = output.blocks.first() {
+        println!("{}", serde_json::to_string_pretty(block).unwrap());
     }
-    println!("{:-<55}", "");
     
     println!();
-    println!("Aggregate Statistics:");
-    println!("  Avg blocks per run: {:.1}", mc_result.avg_blocks());
-    println!("  Avg total value: {:.0}", mc_result.avg_total_value());
-    println!("  Value std dev: {:.0}", mc_result.value_std_dev());
-    println!("  Avg inclusion rate: {:.1}%", mc_result.avg_inclusion_rate() * 100.0);
-    println!("  Avg speedup: {:.0}x", mc_result.avg_speedup());
+    println!("{:-<70}", "");
     println!();
-    println!("  Total real time: {:?}", total_time);
-    println!("  Time per iteration: {:?}", total_time / 10);
-    println!("  Total simulated time: {:?}", config.sim_duration * 10);
+    
+    // Monte Carlo summary
+    println!("Monte Carlo Analysis (5 runs):");
+    let mc_result = run_monte_carlo(config.clone(), 5);
+    
+    println!();
+    println!("{{");
+    println!("  \"iterations\": {},", mc_result.iterations());
+    println!("  \"avg_blocks\": {:.1},", mc_result.avg_blocks());
+    println!("  \"avg_total_value\": {:.0},", mc_result.avg_total_value());
+    println!("  \"value_std_dev\": {:.0},", mc_result.value_std_dev());
+    println!("  \"avg_inclusion_rate_pct\": {:.1},", mc_result.avg_inclusion_rate() * 100.0);
+    println!("  \"avg_speedup\": {:.0}", mc_result.avg_speedup());
+    println!("}}");
 }

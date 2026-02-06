@@ -7,13 +7,15 @@ pub mod stream;
 pub mod r#loop;
 pub mod time;
 pub mod sim;
+pub mod metrics;
+pub mod output;
 
 // Re-export main types for convenience
 pub use config::Config;
 pub use tx::{Tx, TxId};
 pub use block::Block;
 pub use pool::Pool;
-pub use builder::{Builder, BuildResult, UpdateResult};
+pub use builder::{Builder, BuildResult, UpdateResult, IncrementalStats};
 pub use r#loop::{
     BuilderCommand, BuilderEvent, BuilderLoopConfig,
     LoopStats, PollingBuilder, run_builder_loop, build_from_batch,
@@ -29,4 +31,11 @@ pub use time::{
 pub use sim::{
     SimConfig, SimEvent, SimulationResult, BlockSimStats,
     MonteCarloResult, run_simulation, run_monte_carlo,
+};
+pub use metrics::{
+    BuilderMetrics, MetricsReport, RollingStats, Histogram, RateTracker,
+};
+pub use output::{
+    TxRecord, BlockRecord, SimulationSummary, SimulationOutput,
+    MetricsOutput, CsvWriter, OutputFormat, write_simulation_csv,
 };
