@@ -102,15 +102,15 @@ impl Histogram {
         self.count += 1;
         self.sum += value;
         
+        let buckets_len = self.buckets.len();
+        
         let idx = if value <= self.min {
             0
         } else if value >= self.max {
-            self.buckets.len() - 1
+            buckets_len - 1
         } else {
             ((value - self.min) / self.bucket_width) as usize
         };
-
-        let buckets_len = self.buckets.len();
         
         self.buckets[idx.min(buckets_len - 1)] += 1;
     }
