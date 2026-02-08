@@ -203,8 +203,12 @@ pub fn run_simulation(config: SimConfig) -> SimulationResult {
                 current_block_stats.record(&result);
                 
                 match result {
-                    UpdateResult::Added | UpdateResult::Replaced(_) => {}
-                    UpdateResult::Rejected | UpdateResult::Duplicate => {
+                    UpdateResult::Added 
+                    | UpdateResult::Replaced(_) 
+                    | UpdateResult::ReplacedMultiple(_) => {}
+                    UpdateResult::Rejected 
+                    | UpdateResult::Duplicate 
+                    | UpdateResult::InsufficientFee => {
                         pending_txs.push(tx);
                     }
                 }

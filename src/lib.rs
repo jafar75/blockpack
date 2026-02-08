@@ -14,7 +14,7 @@ pub mod output;
 pub use config::Config;
 pub use tx::{Tx, TxId};
 pub use block::Block;
-pub use pool::Pool;
+pub use pool::{Pool, PoolStats, PoolPressure};
 pub use builder::{Builder, BuildResult, UpdateResult, IncrementalStats};
 pub use r#loop::{
     BuilderCommand, BuilderEvent, BuilderLoopConfig,
