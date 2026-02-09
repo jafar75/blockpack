@@ -11,6 +11,8 @@ pub mod metrics;
 pub mod output;
 pub mod nonce;
 pub mod conflict;
+pub mod bundle;
+pub mod lookahead;
 
 // Re-export main types for convenience
 pub use config::Config;
@@ -43,3 +45,8 @@ pub use output::{
 };
 pub use nonce::{NonceTracker, NonceError};
 pub use conflict::{StorageSlot, AccessList, ConflictType, ConflictTracker};
+pub use bundle::{Bundle, BundleId, BundlePool, BundlePoolStats};
+pub use lookahead::{
+    PlannedBlock, TxPriority, ScheduledTx, LookaheadPlanner,
+    BlockPlanStats, LookaheadStats,
+};
