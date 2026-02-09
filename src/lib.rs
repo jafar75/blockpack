@@ -9,10 +9,12 @@ pub mod time;
 pub mod sim;
 pub mod metrics;
 pub mod output;
+pub mod nonce;
+pub mod conflict;
 
 // Re-export main types for convenience
 pub use config::Config;
-pub use tx::{Tx, TxId};
+pub use tx::{Tx, TxId, Address};
 pub use block::Block;
 pub use pool::{Pool, PoolStats, PoolPressure};
 pub use builder::{Builder, BuildResult, UpdateResult, IncrementalStats};
@@ -39,3 +41,5 @@ pub use output::{
     TxRecord, BlockRecord, SimulationSummary, SimulationOutput,
     MetricsOutput, CsvWriter, OutputFormat, write_simulation_csv,
 };
+pub use nonce::{NonceTracker, NonceError};
+pub use conflict::{StorageSlot, AccessList, ConflictType, ConflictTracker};
