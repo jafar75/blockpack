@@ -290,39 +290,6 @@ impl Builder {
         BuildResult { block, included, considered, skipped }
     }
     
-    /// Build a block using greedy, then try to fill gaps
-    pub fn build_greedy_with_backfill(&mut self, pool: &Pool) -> BuildResult {
-        let mut block = Block::new(self.next_block_number, self.block_gas_limit);
-        let mut included = Vec::new();
-        let mut skipped_txs: Vec<&Tx> = Vec::new();
-        
-        let sorted = pool.sorted_by_density();
-        let considered = sorted.len();
-        
-        for tx in sorted {
-            if block.can_fit(tx) {
-                included.push(tx.id);
-                block.add_tx(tx.clone());
-            } else {
-                skipped_txs.push(tx);
-            }
-        }
-        
-        skipped_txs.sort_by_key(|tx| tx.gas_limit);
-        
-        let mut final_skipped = 0;
-        for tx in skipped_txs {
-            if block.can_fit(tx) {
-                included.push(tx.id);
-                block.add_tx(tx.clone());
-            } else {
-                final_skipped += 1;
-            }
-        }
-        
-        BuildResult { block, included, considered, skipped: final_skipped }
-    }
-    
     /// Finalize without returning block
     pub fn seal_block(&mut self) {
         self.candidate = None;
@@ -343,12 +310,6 @@ impl Builder {
 pub fn greedy_build(pool: &Pool, block_number: u64, gas_limit: u64) -> BuildResult {
     let mut builder = Builder::with_start_block(gas_limit, block_number);
     builder.build_greedy(pool)
-}
-
-/// Standalone function for one-off greedy build with backfill
-pub fn greedy_build_with_backfill(pool: &Pool, block_number: u64, gas_limit: u64) -> BuildResult {
-    let mut builder = Builder::with_start_block(gas_limit, block_number);
-    builder.build_greedy_with_backfill(pool)
 }
 
 #[cfg(test)]
